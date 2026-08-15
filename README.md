@@ -2,7 +2,7 @@
 
 ## Description
 
-A tracking application that scrapes Steam to collect price data for games and tracks their price history over time.
+A tracking application that scrapes Steam to collect price data from games and tracks their price history over time.
 
 Possible future updates will see notifications when a game is at an all-time low price or experiences drops in price.
 
