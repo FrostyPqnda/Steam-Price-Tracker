@@ -8,6 +8,8 @@ at an all-time low price or drops in price
 For simplicity, this application only scrapes paid games, since F2P games don't necessarily contribute to the price tracker. 
 However, if a previously paid-for game becomes free, it will be tracked. 
 
+This project is an independent, unofficial Steam price tracker and is not affiliated with or endorsed by Valve Corporation.
+
 ## Getting Started
 
 ### Prerequisites
