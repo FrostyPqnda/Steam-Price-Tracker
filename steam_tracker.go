@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"log"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -30,7 +29,7 @@ type Game struct {
 var totalGames, totalPages int
 var games []Game
 
-/*func parse_pagination_data(totalGames, totalPages *int) {
+func parse_pagination_data(totalGames, totalPages *int) {
 	c := colly.NewCollector()
 
 	c.OnHTML("div.search_pagination", func(e *colly.HTMLElement) {
@@ -64,11 +63,11 @@ var games []Game
 		fmt.Println("Request error:", err)
 	})
 
-	var err = c.Visit("https://store.steampowered.com/search?hwtype=0&supportedlang=english&specials=1&hidef2p=1&ndl=1")
+	var err = c.Visit("https://store.steampowered.com/search?hwtype=0&supportedlang=english&hidef2p=1&ndl=1&page=1")
 	if err != nil {
 		log.Fatal(err)
 	}
-}*/
+}
 
 func extract_value(s string) (float64, error) {
 	s = strings.TrimSpace(s)
@@ -97,27 +96,14 @@ func track(games *[]Game) {
 	})
 
 	c.OnHTML("div#search_resultsRows > a", func(e *colly.HTMLElement) {
-		discountPct := e.ChildText("div.discount_pct")
-		if discountPct == "" {
-			return
-		}
+		discount, _ := extract_value(e.ChildText("div.discount_pct"))
 
-		discount, err := extract_value(discountPct)
-		// Could not extract discount percent
-		if err != nil {
-			return
-		}
+		original_price, _ := extract_value(e.ChildText("div.discount_original_price"))
 
-		original_price, err := extract_value(e.ChildText("div.discount_original_price"))
-		// Could not extract original price
-		if err != nil {
-			return
-		}
+		discount_price, _ := extract_value(e.ChildText("div.discount_final_price"))
 
-		discount_price, err := extract_value(e.ChildText("div.discount_final_price"))
-		// Could not extract discount price
-		if err != nil {
-			return
+		if !e.DOM.HasClass("no_discount") {
+			original_price = discount_price
 		}
 
 		platforms := []string{}
@@ -174,9 +160,9 @@ func track(games *[]Game) {
 }
 
 func main() {
-	//parse_pagination_data(&totalGames, &totalPages)
-	//fmt.Printf("total_games=%d, total_pages=%d\n", totalGames, totalPages)
-	track(&games)
+	parse_pagination_data(&totalGames, &totalPages)
+	fmt.Printf("total_games=%d, total_pages=%d\n", totalGames, totalPages)
+	/*track(&games)
 
 	for _, game := range games {
 		fmt.Println(game.app_id)
@@ -192,5 +178,5 @@ func main() {
 			fmt.Fprintf(os.Stdout, "\tLast checked: %s\n", price.checked_at.Format("2006-01-02 15:04:05"))
 		}
 		fmt.Println()
-	}
+	}*/
 }
