@@ -2,8 +2,9 @@
 
 ## Description
 
-A tracking application that scrapes the Steam page to collect price data for games and notifies users when a game is 
-at an all-time low price or drops in price
+A tracking application that scrapes Steam to collect price data for games and tracks their price history over time.
+
+Possible future updates will see notifications when a game is at an all-time low price or experiences drops in price.
 
 For simplicity, this application only scrapes paid games, since F2P games don't necessarily contribute to the price tracker. 
 However, if a previously paid-for game becomes free, it will be tracked. 
