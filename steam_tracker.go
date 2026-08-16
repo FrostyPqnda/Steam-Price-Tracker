@@ -1,8 +1,10 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -11,22 +13,20 @@ import (
 )
 
 type PriceRecord struct {
-	original_price float64
-	discount_price float64
-	discount       float64
-	checked_at     time.Time
+	//AppId         int       `bson:"app_id" json:"app_id"`
+	OriginalPrice float64   `bson:"original_price" json:"original_price"`
+	DiscountPrice float64   `bson:"discount_price" json:"discount_price"`
+	Discount      float64   `bson:"discount" json:"discount"`
+	CheckedAt     time.Time `bson:"checked_at" json:"checked_at"`
 }
 
 type Game struct {
-	app_id         int
-	title          string
-	url            string
-	platforms      []string
-	date_published string
-	price_history  []PriceRecord
+	AppId        int           `bson:"app_id" json:"app_id"`
+	Title        string        `bson:"title" json:"title"`
+	URL          string        `bson:"url" json:"url"`
+	PriceHistory []PriceRecord `bson:"price_history" json:"price_history"`
 }
 
-var totalGames, totalPages int
 var games []Game
 
 func parse_pagination_data(totalGames, totalPages *int) {
@@ -86,6 +86,10 @@ func extract_value(s string) (float64, error) {
 }
 
 func track(games *[]Game) {
+	var totalGames, totalPages int
+	parse_pagination_data(&totalGames, &totalPages)
+	fmt.Printf("total_games=%d, total_pages=%d\n", totalGames, totalPages)
+
 	c := colly.NewCollector(
 		colly.UserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"),
 	)
@@ -95,88 +99,71 @@ func track(games *[]Game) {
 		RandomDelay: 5 * time.Second,
 	})
 
-	c.OnHTML("div#search_resultsRows > a", func(e *colly.HTMLElement) {
-		discount, _ := extract_value(e.ChildText("div.discount_pct"))
+	for page := 1; page <= 10; page++ {
 
-		original_price, _ := extract_value(e.ChildText("div.discount_original_price"))
+		c.OnHTML("div#search_resultsRows > a", func(e *colly.HTMLElement) {
+			discount, _ := extract_value(e.ChildText("div.discount_pct"))
 
-		discount_price, _ := extract_value(e.ChildText("div.discount_final_price"))
+			original_price, _ := extract_value(e.ChildText("div.discount_original_price"))
 
-		if !e.DOM.HasClass("no_discount") {
-			original_price = discount_price
-		}
+			discount_price, _ := extract_value(e.ChildText("div.discount_final_price"))
 
-		platforms := []string{}
-		e.ForEach("span.platform_img", func(_ int, el *colly.HTMLElement) {
-			class := el.Attr("class")
-
-			if strings.Contains(class, "win") {
-				platforms = append(platforms, "Windows")
+			id, err := strconv.Atoi(e.Attr("data-ds-appid"))
+			if err != nil {
+				return
 			}
-			if strings.Contains(class, "mac") {
-				platforms = append(platforms, "macOS")
+
+			if e.DOM.Find("div.discount_block").HasClass("no_discount") {
+				original_price = discount_price
+				discount = 0
 			}
-			if strings.Contains(class, "linux") {
-				platforms = append(platforms, "Linux")
+
+			price := PriceRecord{
+				OriginalPrice: original_price,
+				DiscountPrice: discount_price,
+				Discount:      discount,
+				CheckedAt:     time.Now(),
 			}
+
+			game := Game{
+				AppId:        id,
+				Title:        e.ChildText("span.title"),
+				URL:          strings.TrimPrefix(e.Attr("href"), "?"),
+				PriceHistory: []PriceRecord{price},
+			}
+
+			*games = append(*games, game)
 		})
 
-		id, err := strconv.Atoi(e.Attr("data-ds-appid"))
+		c.OnRequest(func(r *colly.Request) {
+			fmt.Println("Visiting:", r.URL)
+		})
+
+		c.OnError(func(r *colly.Response, err error) {
+			fmt.Println("Request error:", err)
+		})
+
+		url := fmt.Sprintf("https://store.steampowered.com/search?hwtype=0&supportedlang=english&hidef2p=1&ndl=1&page=%d", page)
+		var err = c.Visit(url)
 		if err != nil {
-			return
+			log.Fatal(err)
 		}
-
-		price := PriceRecord{
-			original_price: original_price,
-			discount_price: discount_price,
-			discount:       discount,
-			checked_at:     time.Now(),
-		}
-
-		game := Game{
-			app_id:         id,
-			title:          e.ChildText("span.title"),
-			url:            e.Attr("href"),
-			platforms:      platforms,
-			date_published: e.ChildText("div.search_released"),
-			price_history:  []PriceRecord{price},
-		}
-
-		*games = append(*games, game)
-	})
-
-	c.OnRequest(func(r *colly.Request) {
-		fmt.Println("Visiting:", r.URL)
-	})
-
-	c.OnError(func(r *colly.Response, err error) {
-		fmt.Println("Request error:", err)
-	})
-
-	var err = c.Visit("https://store.steampowered.com/search?hwtype=0&supportedlang=english&hidef2p=1&ndl=1&page=1")
-	if err != nil {
-		log.Fatal(err)
 	}
 }
 
-func main() {
-	parse_pagination_data(&totalGames, &totalPages)
-	fmt.Printf("total_games=%d, total_pages=%d\n", totalGames, totalPages)
-	/*track(&games)
+func writeJSON(games *[]Game) error {
+	data, err := json.MarshalIndent(games, "", "\t")
+	if err != nil {
+		return err
+	}
 
-	for _, game := range games {
-		fmt.Println(game.app_id)
-		fmt.Println(game.title)
-		fmt.Println(game.url)
-		fmt.Println(game.platforms)
-		fmt.Println(game.date_published)
-		fmt.Println("Price History:")
-		for _, price := range game.price_history {
-			fmt.Fprintf(os.Stdout, "\tOriginal Price: $%.2f\n", price.original_price)
-			fmt.Fprintf(os.Stdout, "\tDiscount Price: $%.2f\n", price.discount_price)
-			fmt.Fprintf(os.Stdout, "\tDiscount: %.0f%%\n", price.discount)
-			fmt.Fprintf(os.Stdout, "\tLast checked: %s\n", price.checked_at.Format("2006-01-02 15:04:05"))
-		}
-		fmt.Println()
-	}*/
+	return os.WriteFile("games.json", data, 0644)
+}
+
+func main() {
+	track(&games)
+	err := writeJSON(&games)
+	if err != nil {
+		panic(err)
+	}
 }
