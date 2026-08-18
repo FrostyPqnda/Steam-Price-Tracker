@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gocolly/colly"
+	"github.com/joho/godotenv"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
@@ -33,11 +35,18 @@ type Game struct {
 var games []Game
 
 func connectMongoDB() (*mongo.Client, error) {
-	client, err := mongo.Connect(
-		options.Client().ApplyURI("mongodb://localhost:27017/"),
-	)
-	if err != nil {
+	if err := godotenv.Load(); err != nil {
+		log.Println("No .env file found, relying on real environment variables")
+	}
 
+	mongoURI := os.Getenv("MONGO_URI")
+	if mongoURI == "" {
+		log.Fatal("MONGO_URI environment variable not set")
+	}
+
+	client, err := mongo.Connect(options.Client().ApplyURI(mongoURI))
+	if err != nil {
+		log.Fatal(err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -210,7 +219,7 @@ func track(collection *mongo.Collection) {
 		fmt.Println("Request error:", err)
 	})
 
-	for page := 1; page <= totalPages; page++ {
+	for page := 1; page <= 5; page++ {
 		url := fmt.Sprintf("https://store.steampowered.com/search?hwtype=0&supportedlang=english&hidef2p=1&ndl=1&page=%d", page)
 		var err = c.Visit(url)
 		if err != nil {
