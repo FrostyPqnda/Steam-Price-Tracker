@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"log/slog"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -34,6 +36,27 @@ type Game struct {
 	PriceHistory  []PriceRecord `bson:"price_history" json:"price_history"`   // The game's price history over time
 }
 
+func setupLogging(serviceName string) (*os.File, error) {
+	var logDir string = "log"
+
+	if err := os.MkdirAll(logDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create log directory: %w", err)
+	}
+
+	timestamp := time.Now().Format("2006-01-02")
+	logPath := filepath.Join(logDir, fmt.Sprintf("%s-%s.log", serviceName, timestamp))
+
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to open log file: %w", err)
+	}
+
+	logger := slog.New(slog.NewTextHandler(logFile, nil))
+	slog.SetDefault(logger)
+	return logFile, nil
+}
+
 // connectMongoDB establishes a connection to the MongoDB
 //
 // On success, connectMongoDB returns a MongoDB client and null error.
@@ -41,22 +64,33 @@ type Game struct {
 func connectMongoDB() (*mongo.Client, error) {
 	// Load the .env file and log the error if it odes not exists
 	if err := godotenv.Load(); err != nil {
-		log.Println("No .env file found, relying on real environment variables")
+		slog.Error("No .env file found, relying on real environment variables", "error", err)
 	}
 
 	// Get the MONGO_URI variable and log the error
 	// if it is not set
 	mongoURI := os.Getenv("MONGO_URI")
 	if mongoURI == "" {
-		log.Fatal("MONGO_URI environment variable not set")
+		slog.Error("MONGO_URI environment variable not set")
+	}
+
+	username := os.Getenv("MONGO_USERNAME")
+	password := os.Getenv("MONGO_PASSWORD")
+	if username == "" || password == "" {
+		return nil, fmt.Errorf("MONGO_USERNAME or MONGO_PASSWORD environment variable not set")
 	}
 
 	// Establish a connection to MongoDB and instantiate a mongoDB client
 	//
 	// Log an error if a connection fails
-	client, err := mongo.Connect(options.Client().ApplyURI(mongoURI))
+	clientOpts := options.Client().ApplyURI(mongoURI).SetAuth(options.Credential{
+		Username: username,
+		Password: password,
+	})
+
+	client, err := mongo.Connect(clientOpts)
 	if err != nil {
-		log.Fatal(err)
+		slog.Error("Failed to establish a connection", "error", err)
 	}
 
 	// Create a context and ping the MongoDB, giving it a 2 second deadline
@@ -78,6 +112,8 @@ func connectMongoDB() (*mongo.Client, error) {
 // if it does not exist. Otherwise, it will update the price history
 // if there has been a change, i.e., discount change or price change
 func upsertGame(collection *mongo.Collection, g Game) error {
+	ctx := context.TODO()
+
 	// Search for the game inside the Game document using its
 	// app id.
 	//
@@ -85,17 +121,40 @@ func upsertGame(collection *mongo.Collection, g Game) error {
 	// and return the error if there was one.
 	var existing Game
 	err := collection.FindOne(
-		context.TODO(),
+		ctx,
 		bson.M{"_id": g.AppId},
 	).Decode(&existing)
 
 	if err == mongo.ErrNoDocuments {
-		_, insertErr := collection.InsertOne(context.TODO(), g)
-		return insertErr
+		_, err := collection.InsertOne(context.TODO(), g)
+		if err != nil {
+			slog.Error(
+				"Failed to insert new game",
+				"app_id", g.AppId,
+				"game", g.Title,
+				"error", err,
+			)
+
+			return err
+		}
+
+		slog.Info(
+			"Inserted new game",
+			"app_id", g.AppId,
+			"game", g.Title,
+		)
+
+		return nil
 	}
 
 	// If there is an error but insertion failed, return it
 	if err != nil {
+		slog.Error(
+			"Failed to find game",
+			"app_id", g.AppId,
+			"game", g.Title,
+			"error", err,
+		)
 		return err
 	}
 
@@ -127,6 +186,13 @@ func upsertGame(collection *mongo.Collection, g Game) error {
 	// update map
 	if changed {
 		update["$push"] = bson.M{"price_history": rec}
+		slog.Info(
+			"Updated game price data",
+			"app_id", g.AppId,
+			"game", g.Title,
+			"old_price_data", last,
+			"new_price_data", rec,
+		)
 	}
 
 	// Update the game with the field using its app id and return the error
@@ -137,6 +203,10 @@ func upsertGame(collection *mongo.Collection, g Game) error {
 // parsePaginationData crawls the steam store webpage's pagination
 // section and extracts the total no. of pages.
 func parsePaginationData(totalPages *int) {
+	const searchURL = "https://store.steampowered.com/search?hwtype=0&supportedlang=english&hidef2p=1&ndl=1&page=1"
+
+	slog.Debug("Staring pagination data extraction", "url", searchURL)
+
 	// Insantiate a Collecter instance to begin scraping
 	c := colly.NewCollector(
 		colly.UserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"),
@@ -147,6 +217,10 @@ func parsePaginationData(totalPages *int) {
 		e.ForEach("a[href]", func(_ int, el *colly.HTMLElement) {
 			page, err := strconv.Atoi(strings.TrimSpace(el.Text))
 			if err != nil {
+				slog.Debug(
+					"Skipping non-numeric pagination element",
+					"text", el.Text,
+				)
 				return
 			}
 
@@ -158,19 +232,27 @@ func parsePaginationData(totalPages *int) {
 
 	// Print the URL being visted
 	c.OnRequest(func(r *colly.Request) {
-		fmt.Println("Visiting:", r.URL)
+		slog.Debug("Visiting URL", "url", r.URL.String())
 	})
 
 	// Print any error that happens during the scraping
 	c.OnError(func(r *colly.Response, err error) {
-		fmt.Println("Request error:", err)
+		slog.Error(
+			"Request failed",
+			"url", r.Request.URL.String(),
+			"status", r.StatusCode,
+			"error", err,
+		)
 	})
 
 	// Visit the Steam store page and log the error if it exists
 	var err = c.Visit("https://store.steampowered.com/search?hwtype=0&supportedlang=english&hidef2p=1&ndl=1&page=1")
 	if err != nil {
-		log.Fatal(err)
+		slog.Error("failed to extract pagination data", "error", err)
+		return
 	}
+
+	slog.Info("pagination data extracted", "total_pages", *totalPages)
 }
 
 // extractValue extracts the floating point value from a Steam game, specifically
@@ -209,10 +291,11 @@ func cleanURL(href string) string {
 
 // track crawls the Steam store webpage and collects the game data into a MongoDB collection
 func track(collection *mongo.Collection) {
+	slog.Debug("Startig price tracking extraction")
+
 	// Extract the total no. of pages from the pagination data
 	var totalPages int
 	parsePaginationData(&totalPages)
-	fmt.Printf("total_pages=%d\n", totalPages)
 
 	// Initialize a Collector instance to begin crawling
 	c := colly.NewCollector(
@@ -221,6 +304,7 @@ func track(collection *mongo.Collection) {
 
 	// Setup a delay to avoid hitting the page too many times and triggering its rate limit
 	c.Limit(&colly.LimitRule{
+		DomainGlob:  "*store.steampowered.com*",
 		Delay:       90 * time.Second,
 		RandomDelay: 30 * time.Second,
 	})
@@ -239,6 +323,7 @@ func track(collection *mongo.Collection) {
 		// an error
 		id, err := strconv.Atoi(e.Attr("data-ds-appid"))
 		if err != nil {
+			slog.Error("Failed to extract app id", "error", err)
 			return
 		}
 
@@ -276,44 +361,60 @@ func track(collection *mongo.Collection) {
 
 		// Upsert the game into the Game document and throw an error if it fails
 		if err := upsertGame(collection, game); err != nil {
-			fmt.Println("Upsert error:", err)
+			slog.Error("Upsertion error",
+				"app_id", game.AppId,
+				"title", game.Title,
+				"error", err,
+			)
 		}
 
 	})
 
 	// Print out the current page being visited
 	c.OnRequest(func(r *colly.Request) {
-		fmt.Println("Visiting:", r.URL)
+		slog.Info("Visiting URL", "url", r.URL.String())
+	})
+
+	c.OnResponse(func(r *colly.Response) {
+		if r.StatusCode == 429 {
+			slog.Warn("Rate limited, backing off 5 minutes...")
+			time.Sleep(5 * time.Minute)
+		}
 	})
 
 	// Print out the error during scraping
 	c.OnError(func(r *colly.Response, err error) {
-		fmt.Println("Request error:", err)
+		slog.Error("Request error", "error", err)
 	})
+
+	//q, _ := queue.New(1, &queue.InMemoryQueueStorage{MaxSize: 10000})
 
 	// Visit all pages starting from 1 to n and log any errors that occurs
 	// during visit
-	for page := 1; page <= 5; page++ {
-		url := fmt.Sprintf("https://store.steampowered.com/search?hwtype=0&supportedlang=english&hidef2p=1&ndl=1&page=%d", page)
-		var err = c.Visit(url)
-		if err != nil {
-			log.Fatal(err)
-		}
+	url := fmt.Sprintf("https://store.steampowered.com/search?hwtype=0&supportedlang=english&hidef2p=1&ndl=1&page=%d", 1)
+	var err = c.Visit(url)
+	if err != nil {
+		slog.Error("Failed to visit", "error", err)
 	}
-
 }
 
 func main() {
+	logFile, err := setupLogging("app")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer logFile.Close()
+
 	// Establish a connection to MongoDB
 	client, err := connectMongoDB()
 	if err != nil {
-		log.Fatal("Could not connect to MongoDB:", err)
+		slog.Error("Could not connect to MongoDB", "error", err)
 	}
 
 	// Dissconnect if there was an issue with connecting
 	defer func() {
 		if err := client.Disconnect(context.Background()); err != nil {
-			log.Println("MongoDB disconnect error:", err)
+			slog.Error("MongoDB disconnect error", "error", err)
 		}
 	}()
 
