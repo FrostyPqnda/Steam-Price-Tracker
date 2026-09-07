@@ -55,6 +55,6 @@ func main() {
 	// Connect to the Steam Price Tracker database and get the GAME collection
 	collection := client.Database("steam_price_tracker").Collection("game")
 
-	//scraper.Track(collection)
-	commands.DisplayRecords(collection, 2)
+	//commands.Crawl(collection)
+	commands.DisplayStats(collection)
 }

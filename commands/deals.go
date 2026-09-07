@@ -9,21 +9,23 @@ import (
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
-	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
-func DisplayRecords(collection *mongo.Collection, page int) {
+func DisplayDeals(collection *mongo.Collection) {
 	ctx := context.TODO()
+	filter := bson.M{"price_snapshot.discount": bson.M{"$ne": 0}}
 
-	pageSize := int64(25)
-	skip := int64((page - 1) * 25)
+	cursor, err := collection.Find(ctx, filter, nil)
+	if err != nil {
+		slog.Error("Failed to query deals", "error", err)
+		return
+	}
+	defer cursor.Close(ctx)
 
-	opts := options.Find().SetLimit(pageSize).SetSkip(skip)
-
-	cursor, err := collection.Find(ctx, bson.D{}, opts)
 	var results []types.Game
 	if err = cursor.All(ctx, &results); err != nil {
-		slog.Error("Failed to load", "page", page, "error", err)
+		slog.Error("Failed to load deals", "error", err)
+		return
 	}
 
 	for _, result := range results {

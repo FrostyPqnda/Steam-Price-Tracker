@@ -15,7 +15,7 @@ import (
 
 // parsePaginationData crawls the steam store webpage's pagination
 // section and extracts the total no. of pages.
-func parsePaginationData(totalPages *int) {
+func ParsePaginationData(totalPages *int) {
 	const searchURL = "https://store.steampowered.com/search?hwtype=0&supportedlang=english&hidef2p=1&ndl=1&page=1"
 
 	slog.Debug("Staring pagination data extraction", "url", searchURL)
@@ -59,7 +59,7 @@ func parsePaginationData(totalPages *int) {
 	})
 
 	// Visit the Steam store page and log the error if it exists
-	var err = c.Visit("https://store.steampowered.com/search?hwtype=0&supportedlang=english&hidef2p=1&ndl=1&page=1")
+	var err = c.Visit("https://store.steampowered.com/search?hwtype=0&category1=998&supportedlang=english&hidef2p=1&ndl=1&page=1")
 	if err != nil {
 		slog.Error("failed to extract pagination data", "error", err)
 		return
@@ -108,7 +108,7 @@ func Crawl(collection *mongo.Collection) {
 
 	// Extract the total no. of pages from the pagination data
 	var totalPages int
-	parsePaginationData(&totalPages)
+	ParsePaginationData(&totalPages)
 
 	// Initialize a Collector instance to begin crawling
 	c := colly.NewCollector(
@@ -204,7 +204,7 @@ func Crawl(collection *mongo.Collection) {
 	// Visit all pages starting from 1 to n and log any errors that occurs
 	// during visit
 	for page := 1; page <= 3; page++ {
-		url := fmt.Sprintf("https://store.steampowered.com/search?hwtype=0&supportedlang=english&hidef2p=1&ndl=1&page=%d", page)
+		url := fmt.Sprintf("https://store.steampowered.com/search?hwtype=0&category1=998&supportedlang=english&hidef2p=1&ndl=1&page=%d", page)
 		var err = c.Visit(url)
 		if err != nil {
 			slog.Error("Failed to visit", "error", err)
