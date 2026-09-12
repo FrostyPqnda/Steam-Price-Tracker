@@ -13,19 +13,27 @@ import (
 
 func SearchLowestPrice(collection *mongo.Collection, appId int) {
 	ctx := context.TODO()
+
+	slog.Info("Running SearchLowestPrice", "appId", appId)
+
 	var existing types.Game
 	err := collection.FindOne(
 		ctx,
 		bson.M{"_id": appId},
 	).Decode(&existing)
 
-	if err == mongo.ErrNoDocuments {
-		slog.Error("Failed to find game", "app_id", appId, "error", err)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			slog.Warn("No game found for app ID", "appId", appId)
+		} else {
+			slog.Error("Failed to fetch game", "appId", appId, "error", err)
+		}
 		return
 	}
 
 	if len(existing.PriceHistory) == 0 {
-		fmt.Printf("%s has no price history", existing.Title)
+		slog.Info("No price history available", "appId", appId, "title", existing.Title)
+		fmt.Printf("%s has no price history\n", existing.Title)
 		return
 	}
 
@@ -40,4 +48,6 @@ func SearchLowestPrice(collection *mongo.Collection, appId int) {
 	fmt.Printf("Lowest Price: $%.2f\n", lowest.DiscountPrice)
 	fmt.Printf("Discount: %.0f%%\n", lowest.Discount)
 	fmt.Printf("Recorded: %s\n", lowest.CheckedAt.Format(time.RFC3339))
+
+	slog.Info("SearchLowestPrice completed", "appId", appId)
 }

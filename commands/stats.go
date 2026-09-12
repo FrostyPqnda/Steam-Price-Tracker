@@ -29,6 +29,8 @@ func timeAgo(t time.Time) string {
 func DisplayStats(collection *mongo.Collection) {
 	ctx := context.TODO()
 
+	slog.Info("Running DisplayStats")
+
 	totalGames, err := collection.CountDocuments(ctx, bson.M{})
 	if err != nil {
 		slog.Error("Failed to count total games", "error", err)
@@ -182,4 +184,6 @@ func DisplayStats(collection *mongo.Collection) {
 	if !oldest.PriceSnapshot.CheckedAt.IsZero() {
 		fmt.Printf("Oldest check:         %s (%s)\n", timeAgo(oldest.PriceSnapshot.CheckedAt), oldest.Title)
 	}
+
+	slog.Info("DisplayStats completed")
 }

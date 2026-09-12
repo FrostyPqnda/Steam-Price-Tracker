@@ -123,15 +123,13 @@ func Crawl(collection *mongo.Collection) {
 	})
 	c.SetRequestTimeout(30 * time.Second)
 
+	gamesFound := 0
+	upsertErrors := 0
+	extractionWarnings := 0
+	var pagesAttempted, pagesFailed int
+
 	// Search the Steam store games list
 	c.OnHTML("div#search_resultsRows > a", func(e *colly.HTMLElement) {
-		// Extract the discount, original price, and discount price
-		discount, _ := extractValue(e.ChildText("div.discount_pct"))
-
-		original_price, _ := extractValue(e.ChildText("div.discount_original_price"))
-
-		discount_price, _ := extractValue(e.ChildText("div.discount_final_price"))
-
 		// Extract the game's app id and end the crawling if there was
 		// an error
 		id, err := strconv.Atoi(e.Attr("data-ds-appid"))
@@ -140,12 +138,35 @@ func Crawl(collection *mongo.Collection) {
 			return
 		}
 
+		// Extract the discount, original price, and discount price
+		discount, discErr := extractValue(e.ChildText("div.discount_pct"))
+		original_price, origErr := extractValue(e.ChildText("div.discount_original_price"))
+		discount_price, finalErr := extractValue(e.ChildText("div.discount_final_price"))
+		isNoDiscount := e.DOM.Find("div.discount_block").HasClass("no_discount")
+
+		// Steam omits the discount % and original price fields entirely when
+		// there's no discount, so those two "errors" are expected in that case.
+		// Only log them when they're NOT explained by a no-discount listing.
+		if !isNoDiscount && (discErr != nil || origErr != nil) {
+			slog.Warn("Partial price extraction",
+				"app_id", id,
+				"discount_err", discErr,
+				"original_price_err", origErr,
+			)
+			extractionWarnings++
+		}
+
+		if finalErr != nil {
+			slog.Warn("Failed to extract discount price", "app_id", id, "error", finalErr)
+			extractionWarnings++
+		}
+
 		// If the game does not have a discount, set the original price
 		// and the discount price to be the same
 		//
 		// Context: Steam puts the final price in the discount field
 		// even if there is no discount
-		if e.DOM.Find("div.discount_block").HasClass("no_discount") {
+		if isNoDiscount {
 			original_price = discount_price
 			discount = 0
 		}
@@ -196,18 +217,26 @@ func Crawl(collection *mongo.Collection) {
 
 	// Print out the error during scraping
 	c.OnError(func(r *colly.Response, err error) {
-		slog.Error("Request error", "error", err)
+		slog.Error("Request error", "url", r.Request.URL.String(), "status", r.StatusCode, "error", err)
 	})
-
-	//q, _ := queue.New(1, &queue.InMemoryQueueStorage{MaxSize: 10000})
 
 	// Visit all pages starting from 1 to n and log any errors that occurs
 	// during visit
-	for page := 1; page <= 3; page++ {
+	for page := 1; page <= totalPages; page++ {
+		pagesAttempted++
 		url := fmt.Sprintf("https://store.steampowered.com/search?hwtype=0&category1=998&supportedlang=english&hidef2p=1&ndl=1&page=%d", page)
-		var err = c.Visit(url)
-		if err != nil {
-			slog.Error("Failed to visit", "error", err)
+		if err := c.Visit(url); err != nil {
+			slog.Error("Failed to visit", "url", url, "page", page, "error", err)
+			pagesFailed++
 		}
 	}
+
+	slog.Info("Crawl completed",
+		"pagesAttempted", pagesAttempted,
+		"pagesFailed", pagesFailed,
+		"totalPagesAvailable", totalPages,
+		"gamesFound", gamesFound,
+		"upsertErrors", upsertErrors,
+		"extractionWarnings", extractionWarnings,
+	)
 }

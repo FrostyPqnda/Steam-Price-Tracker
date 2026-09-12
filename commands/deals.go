@@ -15,6 +15,8 @@ func DisplayDeals(collection *mongo.Collection) {
 	ctx := context.TODO()
 	filter := bson.M{"price_snapshot.discount": bson.M{"$ne": 0}}
 
+	slog.Info("Running DisplayDeals")
+
 	cursor, err := collection.Find(ctx, filter, nil)
 	if err != nil {
 		slog.Error("Failed to query deals", "error", err)
@@ -28,13 +30,20 @@ func DisplayDeals(collection *mongo.Collection) {
 		return
 	}
 
+	slog.Info("Fetched deals", "count", len(results))
+
+	marshalErrors := 0
 	for _, result := range results {
 		data, err := json.MarshalIndent(result, "", "  ")
 		if err != nil {
-			slog.Error("Failed to marshal game", "error", err)
+			slog.Error("Failed to marshal game", "title", result.Title, "error", err)
+			marshalErrors++
 			continue
 		}
 
 		fmt.Println(string(data))
 	}
+
+	slog.Info("DisplayDeals completed", "count", len(results), "marshalErrors", marshalErrors)
+
 }

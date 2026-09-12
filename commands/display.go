@@ -16,7 +16,9 @@ func DisplayRecords(collection *mongo.Collection, page int) {
 	ctx := context.TODO()
 
 	pageSize := int64(25)
-	skip := int64((page - 1) * 25)
+	skip := int64((page - 1) * int(pageSize))
+
+	slog.Info("Running DisplayRecords", "page", page, "pageSize", pageSize, "skip", skip)
 
 	opts := options.Find().SetLimit(pageSize).SetSkip(skip)
 
@@ -26,13 +28,22 @@ func DisplayRecords(collection *mongo.Collection, page int) {
 		slog.Error("Failed to load", "page", page, "error", err)
 	}
 
+	slog.Info("Fetched records", "page", page, "count", len(results))
+	if len(results) == 0 {
+		slog.Warn("No records found for page", "page", page, "skip", skip)
+	}
+
+	marshalErrors := 0
 	for _, result := range results {
 		data, err := json.MarshalIndent(result, "", "  ")
 		if err != nil {
-			slog.Error("Failed to marshal game", "error", err)
+			slog.Error("Failed to marshal game", "title", result.Title, "error", err)
+			marshalErrors++
 			continue
 		}
 
 		fmt.Println(string(data))
 	}
+
+	slog.Info("DisplayRecords completed", "page", page, "count", len(results), "marshalErrors", marshalErrors)
 }

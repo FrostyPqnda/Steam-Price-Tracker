@@ -13,6 +13,8 @@ import (
 func UpsertGame(collection *mongo.Collection, appId int) (types.Game, error) {
 	ctx := context.TODO()
 
+	slog.Info("Running UpsertGame", "appId", appId)
+
 	// Search for the game inside the Game document using its
 	// app id.
 	//
@@ -27,6 +29,7 @@ func UpsertGame(collection *mongo.Collection, appId int) (types.Game, error) {
 	// Game does not exists
 	if err == mongo.ErrNoDocuments {
 		// Game does not exist yet, so we can't create it
+		slog.Warn("Game not found for upsert", "appId", appId)
 		return types.Game{}, fmt.Errorf("game with app_id %d not found", appId)
 	}
 
@@ -65,6 +68,17 @@ func UpsertGame(collection *mongo.Collection, appId int) (types.Game, error) {
 				"new_price_data", rec,
 			)
 		}
+	} else {
+		slog.Info(
+			"No existing price history — recording first snapshot",
+			"app_id", existing.AppId,
+			"game", existing.Title,
+			"price_data", rec,
+		)
+	}
+
+	if !changed {
+		slog.Info("No price change detected", "app_id", existing.AppId, "game", existing.Title)
 	}
 
 	// Initialize an update variable to update/set these
@@ -95,6 +109,8 @@ func UpsertGame(collection *mongo.Collection, appId int) (types.Game, error) {
 
 		return types.Game{}, err
 	}
+
+	slog.Info("UpsertGame completed", "app_id", existing.AppId, "game", existing.Title, "priceChanged", changed)
 
 	return existing, nil
 }
