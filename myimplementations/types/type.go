@@ -18,3 +18,10 @@ type Game struct {
 	PriceSnapshot PriceRecord   `bson:"price_snapshot" json:"price_snapshot"` // The game's price data currently
 	PriceHistory  []PriceRecord `bson:"price_history" json:"price_history"`   // The game's price history over time
 }
+
+type Metadata struct {
+	ID         string    `bson:"_id"`
+	LastPage   int       `bson:"last_page"`
+	TotalPages int       `bson:"total_pages"`
+	UpdatedAt  time.Time `bson:"updated_at"`
+}

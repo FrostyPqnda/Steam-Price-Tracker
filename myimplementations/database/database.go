@@ -161,3 +161,45 @@ func UpsertGame(collection *mongo.Collection, g types.Game) error {
 	_, err = collection.UpdateOne(context.TODO(), bson.M{"_id": g.AppId}, update)
 	return err
 }
+
+const crawlStateId = "steam_crawl"
+
+func LoadMetadataState(collection *mongo.Collection) (int, int, error) {
+	ctx := context.TODO()
+
+	var state types.Metadata
+	err := collection.FindOne(
+		ctx,
+		bson.M{"_id": crawlStateId},
+	).Decode(&state)
+
+	if err == mongo.ErrNoDocuments {
+		slog.Info("No existing crawl checkpoint found, starting from page 1")
+		return 1, 1, nil
+	}
+
+	if err != nil {
+		slog.Error("Failed to fetch crawl state", "error", err)
+		return 1, 1, err
+	}
+
+	slog.Info("Resuming crawl from checkpoint", "last_page", state.LastPage, "total_pages", state.TotalPages)
+	return state.LastPage, state.TotalPages, nil
+}
+
+func SaveMetadataState(collection *mongo.Collection, page int, totalPages ...int) error {
+	ctx := context.TODO()
+
+	_, err := collection.UpdateOne(
+		ctx,
+		bson.M{"_id": crawlStateId},
+		bson.M{"$set": bson.M{"last_page": page, "total_pages": totalPages, "updated_at": time.Now()}},
+		options.UpdateOne().SetUpsert(true),
+	)
+
+	if err != nil {
+		slog.Error("Failed to save crawl checkpoint", "page", page, "error", err)
+	}
+
+	return err
+}

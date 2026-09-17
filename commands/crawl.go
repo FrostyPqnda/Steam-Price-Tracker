@@ -103,8 +103,8 @@ func cleanURL(href string) string {
 }
 
 // Crawl crawls the Steam store webpage and collects the game data into a MongoDB collection
-func Crawl(collection *mongo.Collection) {
-	slog.Debug("Startig price tracking extraction")
+func Crawl(gameCollection, stateCollection *mongo.Collection) {
+	slog.Debug("Starting price tracking extraction")
 
 	// Extract the total no. of pages from the pagination data
 	var totalPages int
@@ -194,7 +194,7 @@ func Crawl(collection *mongo.Collection) {
 		}
 
 		// Upsert the game into the Game document and throw an error if it fails
-		if err := database.UpsertGame(collection, game); err != nil {
+		if err := database.UpsertGame(gameCollection, game); err != nil {
 			slog.Error("Upsertion error",
 				"app_id", game.AppId,
 				"title", game.Title,
@@ -220,9 +220,24 @@ func Crawl(collection *mongo.Collection) {
 		slog.Error("Request error", "url", r.Request.URL.String(), "status", r.StatusCode, "error", err)
 	})
 
+	//startPage, err := .//LoadState(stateCollection)
+	startPage, lastPage, err := database.LoadMetadataState(stateCollection)
+	if err != nil {
+		slog.Error("Failed to load metadata", "error", err)
+	}
+
+	// Reset the page state once we visited all the pages
+	if startPage == lastPage {
+		startPage = 1
+		lastPage = totalPages
+		database.SaveMetadataState(stateCollection, startPage, lastPage)
+	}
+
 	// Visit all pages starting from 1 to n and log any errors that occurs
 	// during visit
-	for page := 1; page <= totalPages; page++ {
+	for page := startPage; page <= lastPage; page++ {
+		if err := database.SaveMetadataState(stateCollection, page); err != nil {
+		}
 		pagesAttempted++
 		url := fmt.Sprintf("https://store.steampowered.com/search?hwtype=0&category1=998&supportedlang=english&hidef2p=1&ndl=1&page=%d", page)
 		if err := c.Visit(url); err != nil {
