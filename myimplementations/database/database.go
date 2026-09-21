@@ -175,25 +175,50 @@ func LoadMetadataState(collection *mongo.Collection) (int, int, error) {
 
 	if err == mongo.ErrNoDocuments {
 		slog.Info("No existing crawl checkpoint found, starting from page 1")
-		return 1, 1, nil
+		return 0, 0, nil
 	}
 
 	if err != nil {
 		slog.Error("Failed to fetch crawl state", "error", err)
-		return 1, 1, err
+		return 0, 0, err
 	}
 
 	slog.Info("Resuming crawl from checkpoint", "last_page", state.LastPage, "total_pages", state.TotalPages)
 	return state.LastPage, state.TotalPages, nil
 }
 
-func SaveMetadataState(collection *mongo.Collection, page int, totalPages ...int) error {
+func SaveCrawlRange(collection *mongo.Collection, page, totalPages int) error {
 	ctx := context.TODO()
+
+	set := bson.M{
+		"last_page":   page,
+		"total_pages": totalPages,
+		"updated_at":  time.Now(),
+	}
 
 	_, err := collection.UpdateOne(
 		ctx,
 		bson.M{"_id": crawlStateId},
-		bson.M{"$set": bson.M{"last_page": page, "total_pages": totalPages, "updated_at": time.Now()}},
+		bson.M{"$set": set},
+		options.UpdateOne().SetUpsert(true),
+	)
+
+	if err != nil {
+		slog.Error("Failed to save crawl range", "page", page, "total_pages", totalPages, "error", err)
+	}
+
+	return err
+}
+
+func SaveCurrentCrawl(collection *mongo.Collection, page int) error {
+	ctx := context.TODO()
+
+	set := bson.M{"last_page": page, "updated_at": time.Now()}
+
+	_, err := collection.UpdateOne(
+		ctx,
+		bson.M{"_id": crawlStateId},
+		bson.M{"$set": set},
 		options.UpdateOne().SetUpsert(true),
 	)
 

@@ -15,7 +15,7 @@ import (
 
 // parsePaginationData crawls the steam store webpage's pagination
 // section and extracts the total no. of pages.
-func ParsePaginationData(totalPages *int) {
+func parsePaginationData(totalPages *int) {
 	const searchURL = "https://store.steampowered.com/search?hwtype=0&supportedlang=english&hidef2p=1&ndl=1&page=1"
 
 	slog.Debug("Staring pagination data extraction", "url", searchURL)
@@ -104,11 +104,7 @@ func cleanURL(href string) string {
 
 // Crawl crawls the Steam store webpage and collects the game data into a MongoDB collection
 func Crawl(gameCollection, stateCollection *mongo.Collection) {
-	slog.Debug("Starting price tracking extraction")
-
-	// Extract the total no. of pages from the pagination data
-	var totalPages int
-	ParsePaginationData(&totalPages)
+	slog.Info("Starting price tracking extraction")
 
 	// Initialize a Collector instance to begin crawling
 	c := colly.NewCollector(
@@ -200,6 +196,7 @@ func Crawl(gameCollection, stateCollection *mongo.Collection) {
 				"title", game.Title,
 				"error", err,
 			)
+			upsertErrors++
 		}
 	})
 
@@ -224,32 +221,49 @@ func Crawl(gameCollection, stateCollection *mongo.Collection) {
 	startPage, lastPage, err := database.LoadMetadataState(stateCollection)
 	if err != nil {
 		slog.Error("Failed to load metadata", "error", err)
+		return
 	}
 
-	// Reset the page state once we visited all the pages
-	if startPage == lastPage {
+	if startPage == 0 {
+		var totalPages int
+		parsePaginationData(&totalPages)
+
+		if totalPages == 0 {
+			slog.Error("Pagination extraction returned 0 pages, aborting crawl")
+			return
+		}
+
 		startPage = 1
 		lastPage = totalPages
-		database.SaveMetadataState(stateCollection, startPage, lastPage)
+
+		if err := database.SaveCrawlRange(stateCollection, startPage, lastPage); err != nil {
+			slog.Error("Failed to save initial crawl range, aborting", "error", err)
+			return
+		}
+	} else {
+		slog.Info("Resuming crawl, skipping pagination re-check", "start_page", startPage, "last_page", lastPage)
 	}
 
 	// Visit all pages starting from 1 to n and log any errors that occurs
 	// during visit
 	for page := startPage; page <= lastPage; page++ {
-		if err := database.SaveMetadataState(stateCollection, page); err != nil {
-		}
 		pagesAttempted++
-		url := fmt.Sprintf("https://store.steampowered.com/search?hwtype=0&category1=998&supportedlang=english&hidef2p=1&ndl=1&page=%d", page)
+		url := fmt.Sprintf("https://store.steampowered.com/search?hwtype=0&category1=998&supportedlang=english&hidef2p=1&ndl=1&sort_by=Released_ASC&page=%d", page)
 		if err := c.Visit(url); err != nil {
 			slog.Error("Failed to visit", "url", url, "page", page, "error", err)
 			pagesFailed++
+			continue
+		}
+
+		if err := database.SaveCurrentCrawl(stateCollection, page); err != nil {
+			slog.Error("Failed to save crawl checkpoint", "page", page, "error", err)
 		}
 	}
 
 	slog.Info("Crawl completed",
 		"pagesAttempted", pagesAttempted,
 		"pagesFailed", pagesFailed,
-		"totalPagesAvailable", totalPages,
+		"totalPagesAvailable", lastPage,
 		"gamesFound", gamesFound,
 		"upsertErrors", upsertErrors,
 		"extractionWarnings", extractionWarnings,
