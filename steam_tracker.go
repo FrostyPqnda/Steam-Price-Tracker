@@ -35,9 +35,12 @@ func main() {
 
 	// Connect to the Steam Price Tracker database and get the GAME collection
 	gameCollection := client.Database("steam_price_tracker").Collection("game")
-	stateCollection := client.Database("steam_price_tracker").Collection("metadata")
+	//stateCollection := client.Database("steam_price_tracker").Collection("metadata")
 
-	commands.Crawl(gameCollection, stateCollection)
+	//commands.InsertGame(gameCollection, 2552430)
+	//commands.DisplayRecords(gameCollection, 1)
+
+	commands.UpsertGame(gameCollection, 5166980)
 
 	slog.Info("Run completed successfully")
 }

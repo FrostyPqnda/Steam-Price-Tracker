@@ -94,11 +94,15 @@ func extractValue(s string) (float64, error) {
 // the serial number.
 //
 // Input: https://store.steampowered.com/app/<app id>/<title>/?snr=<serial no.>
-// Output: https://store.steampowered.com/app/<app id>/<title>/
+// Output: https://store.steampowered.com/app/<app id>
 func cleanURL(href string) string {
-	if idx := strings.Index(href, "?"); idx != -1 {
-		return href[:idx]
+	if before, _, found := strings.Cut(href, "/?"); found {
+		if idx := strings.LastIndex(before, "/"); idx != -1 {
+			return before[:idx]
+		}
+		return before
 	}
+
 	return href
 }
 
@@ -136,8 +140,8 @@ func Crawl(gameCollection, stateCollection *mongo.Collection) {
 
 		// Extract the discount, original price, and discount price
 		discount, discErr := extractValue(e.ChildText("div.discount_pct"))
-		original_price, origErr := extractValue(e.ChildText("div.discount_original_price"))
-		discount_price, finalErr := extractValue(e.ChildText("div.discount_final_price"))
+		originalPrice, origErr := extractValue(e.ChildText("div.discount_original_price"))
+		discountPrice, finalErr := extractValue(e.ChildText("div.discount_final_price"))
 		isNoDiscount := e.DOM.Find("div.discount_block").HasClass("no_discount")
 
 		// Steam omits the discount % and original price fields entirely when
@@ -163,14 +167,14 @@ func Crawl(gameCollection, stateCollection *mongo.Collection) {
 		// Context: Steam puts the final price in the discount field
 		// even if there is no discount
 		if isNoDiscount {
-			original_price = discount_price
+			originalPrice = discountPrice
 			discount = 0
 		}
 
 		// Create a PriceRecord data at the most recent time checked
 		price := types.PriceRecord{
-			OriginalPrice: original_price,
-			DiscountPrice: discount_price,
+			OriginalPrice: originalPrice,
+			DiscountPrice: discountPrice,
 			Discount:      discount,
 			CheckedAt:     time.Now(),
 		}
@@ -205,6 +209,7 @@ func Crawl(gameCollection, stateCollection *mongo.Collection) {
 		slog.Info("Visiting URL", "url", r.URL.String())
 	})
 
+	// Sleep to prevent rate limiting
 	c.OnResponse(func(r *colly.Response) {
 		if r.StatusCode == 429 {
 			slog.Warn("Rate limited, backing off 5 minutes...")
@@ -224,7 +229,7 @@ func Crawl(gameCollection, stateCollection *mongo.Collection) {
 		return
 	}
 
-	if startPage == 0 {
+	if startPage == lastPage {
 		var totalPages int
 		parsePaginationData(&totalPages)
 
