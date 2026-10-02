@@ -37,10 +37,7 @@ func main() {
 	gameCollection := client.Database("steam_price_tracker").Collection("game")
 	//stateCollection := client.Database("steam_price_tracker").Collection("metadata")
 
-	//commands.InsertGame(gameCollection, 2552430)
-	//commands.DisplayRecords(gameCollection, 1)
-
-	commands.UpsertGame(gameCollection, 5166980)
+	commands.PriceHistory(gameCollection, 1086940)
 
 	slog.Info("Run completed successfully")
 }

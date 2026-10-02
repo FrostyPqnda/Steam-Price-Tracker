@@ -6,7 +6,7 @@ crawl
 
 deals
 - Display games currently discounted
-- go run steam-price-tracker deals <flag> <value>
+- go run steam-price-tracker deals
 
 display
 - Print the 1st 10 game price data
