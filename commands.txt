@@ -13,8 +13,9 @@ display
 - Allow pagination
 - go run steam-price-tracker display <page number>
 
-history
+history / trend
 - Display a game's price history
+- Display a game's price data as trend graph
 - go run steam-price-tracker history <app id | title>
 
 lowest
@@ -32,11 +33,3 @@ update
 stats
 - Display tracker statistics
 - go run steam-price-tracker stats
-
-Not Implemented
-
-track
-- Track a game
-- Display a game's price data as trend graph
-- go run steam-price-tracker track <app id | title>
-

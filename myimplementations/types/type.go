@@ -1,6 +1,10 @@
 package types
 
-import "time"
+import (
+	"time"
+
+	"go.mongodb.org/mongo-driver/v2/mongo"
+)
 
 // A PriceRecord stores the price data of a Steam game at a current time
 type PriceRecord struct {
@@ -25,3 +29,16 @@ type Metadata struct {
 	TotalPages int       `bson:"total_pages"`
 	UpdatedAt  time.Time `bson:"updated_at"`
 }
+
+type App struct {
+	Games *mongo.Collection
+	State *mongo.Collection
+}
+
+type Options struct {
+	ID     int
+	Page   int
+	Prefix string
+}
+
+type Command func(app *App, opts Options) error
