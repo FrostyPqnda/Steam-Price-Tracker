@@ -3,10 +3,16 @@ package commands
 import (
 	"context"
 	"fmt"
+	mytable "game-price-tracker/myimplementations/table"
 	"game-price-tracker/myimplementations/types"
 	"log/slog"
+	"math"
+	"strconv"
 	"time"
 
+	"github.com/jedib0t/go-pretty/v6/table"
+	"github.com/jedib0t/go-pretty/v6/text"
+	"github.com/mattn/go-runewidth"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
@@ -146,44 +152,74 @@ func DisplayStats(collection *mongo.Collection) {
 	}
 
 	// --- Print everything ---
-	fmt.Println("Steam Price Tracker — Stats")
-	fmt.Println("============================")
-	fmt.Printf("Games tracked:        %d\n", totalGames)
+	t := mytable.NewTable("Steam Price Tracker — Stats")
+	t.AppendHeader(table.Row{"METRIC", "VALUE", "DETAIL"})
+
+	// Overview
+	t.AppendRow(table.Row{"Games tracked", commas(totalGames), ""})
 	if totalGames > 0 {
-		fmt.Printf("Currently on sale:    %d (%.0f%%)\n", onSaleCount, float64(onSaleCount)/float64(totalGames)*100)
+		t.AppendRow(table.Row{
+			"Currently on sale",
+			commas(onSaleCount),
+			fmt.Sprintf("%.0f%% of games", float64(onSaleCount)/float64(totalGames)*100),
+		})
 	}
 	if len(totalChecksResults) > 0 {
-		fmt.Printf("Total price checks:   %d\n", totalChecksResults[0].TotalChecks)
+		t.AppendRow(table.Row{"Total price checks", commas(totalChecksResults[0].TotalChecks), ""})
 	}
-	fmt.Println()
+	t.AppendSeparator()
 
+	// Deals (discounts are stored as negatives, so show the absolute value)
 	if hasBiggestDeal {
-		fmt.Printf("Biggest discount:     %s — %d%% off ($%.2f → $%.2f)\n",
-			biggestDeal.Title,
-			biggestDeal.PriceSnapshot.Discount,
-			biggestDeal.PriceSnapshot.OriginalPrice,
-			biggestDeal.PriceSnapshot.DiscountPrice,
-		)
+		d := biggestDeal.PriceSnapshot
+		t.AppendRow(table.Row{
+			"Biggest discount",
+			text.FgGreen.Sprintf("%.0f%% off", math.Abs(float64(d.Discount))),
+			fmt.Sprintf("%s ($%.2f → $%.2f)", shortTitle(biggestDeal.Title), d.OriginalPrice, d.DiscountPrice),
+		})
 	} else {
-		fmt.Println("Biggest discount:     none currently")
+		t.AppendRow(table.Row{"Biggest discount", "none", ""})
 	}
 	if len(avgResults) > 0 && onSaleCount > 0 {
-		fmt.Printf("Avg discount (sale):  %.0f%%\n", avgResults[0].AvgDiscount)
+		t.AppendRow(table.Row{
+			"Avg discount (on sale)",
+			fmt.Sprintf("%.0f%%", math.Abs(avgResults[0].AvgDiscount)),
+			"",
+		})
 	}
 	if len(bestEverResults) > 0 {
-		fmt.Printf("Best deal ever seen:  %s — $%.2f (historical low)\n",
-			bestEverResults[0].Title,
-			bestEverResults[0].AllPrices.DiscountPrice,
-		)
+		t.AppendRow(table.Row{
+			"Best deal ever seen",
+			fmt.Sprintf("$%.2f", bestEverResults[0].AllPrices.DiscountPrice),
+			shortTitle(bestEverResults[0].Title),
+		})
 	}
-	fmt.Println()
+	t.AppendSeparator()
 
+	// Freshness
 	if !mostRecent.PriceSnapshot.CheckedAt.IsZero() {
-		fmt.Printf("Last checked:         %s (%s)\n", timeAgo(mostRecent.PriceSnapshot.CheckedAt), mostRecent.Title)
+		t.AppendRow(table.Row{"Last checked", timeAgo(mostRecent.PriceSnapshot.CheckedAt), shortTitle(mostRecent.Title)})
 	}
 	if !oldest.PriceSnapshot.CheckedAt.IsZero() {
-		fmt.Printf("Oldest check:         %s (%s)\n", timeAgo(oldest.PriceSnapshot.CheckedAt), oldest.Title)
+		t.AppendRow(table.Row{"Oldest check", timeAgo(oldest.PriceSnapshot.CheckedAt), shortTitle(oldest.Title)})
 	}
 
+	t.SetColumnConfigs([]table.ColumnConfig{
+		{Number: 2, Align: text.AlignRight, AlignHeader: text.AlignRight},
+	})
+	t.Render()
+
 	slog.Info("DisplayStats completed")
+}
+
+func commas(n int64) string {
+	s := strconv.FormatInt(n, 10)
+	for i := len(s) - 3; i > 0; i -= 3 {
+		s = s[:i] + "," + s[i:]
+	}
+	return s
+}
+
+func shortTitle(s string) string {
+	return runewidth.Truncate(s, 40, "…")
 }

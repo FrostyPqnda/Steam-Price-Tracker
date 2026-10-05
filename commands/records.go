@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
 
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/jedib0t/go-pretty/v6/text"
 	"github.com/mattn/go-runewidth"
 
+	mytable "game-price-tracker/myimplementations/table"
 	"game-price-tracker/myimplementations/types"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -56,10 +56,7 @@ func DisplayRecords(collection *mongo.Collection, page int) {
 }
 
 func printGames(games []types.Game, page, totalPages int) {
-	t := table.NewWriter()
-	t.SetOutputMirror(os.Stdout)
-	t.SetStyle(table.StyleLight)
-	t.SetTitle("Page %d / %d", page, totalPages)
+	t := mytable.NewTable(fmt.Sprintf("Steam Price Tracker — Records - Page %d of %d", page, totalPages))
 
 	t.AppendHeader(table.Row{"APP ID", "TITLE", "PRICE", "DISCOUNT", "LOWEST", "CHECKED"})
 
