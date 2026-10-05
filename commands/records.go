@@ -17,15 +17,22 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
-func DisplayRecords(collection *mongo.Collection, page int) {
+func DisplayRecords(collection *mongo.Collection, page int, filter bson.M) {
 	ctx := context.TODO()
 
+	if page < 1 {
+		page = 1
+	}
 	pageSize := int64(25)
 	skip := (int64(page) - 1) * pageSize
 
-	total, err := collection.CountDocuments(ctx, bson.D{})
+	total, err := collection.CountDocuments(ctx, filter) // was bson.D{}
 	if err != nil {
 		slog.Error("Failed to count documents", "error", err)
+		return
+	}
+	if total == 0 {
+		fmt.Println("No games match that filter.")
 		return
 	}
 	totalPages := int((total + pageSize - 1) / pageSize)
@@ -37,18 +44,24 @@ func DisplayRecords(collection *mongo.Collection, page int) {
 
 	slog.Info("Running DisplayRecords", "page", page, "pageSize", pageSize, "skip", skip)
 
-	opts := options.Find().SetLimit(pageSize).SetSkip(skip)
+	opts := options.Find().
+		SetSort(bson.D{{Key: "app_id", Value: 1}}).
+		SetLimit(pageSize).
+		SetSkip(skip)
 
-	cursor, err := collection.Find(ctx, bson.D{}, opts)
+	cursor, err := collection.Find(ctx, filter, opts) // was bson.D{}
+	if err != nil {
+		slog.Error("Failed to query", "page", page, "error", err)
+		return
+	}
+
 	var results []types.Game
-	if err = cursor.All(ctx, &results); err != nil {
+	if err := cursor.All(ctx, &results); err != nil {
 		slog.Error("Failed to load", "page", page, "error", err)
+		return
 	}
 
 	slog.Info("Fetched records", "page", page, "count", len(results))
-	if len(results) == 0 {
-		slog.Warn("No records found for page", "page", page, "skip", skip)
-	}
 
 	printGames(results, page, totalPages)
 

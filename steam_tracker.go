@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"game-price-tracker/myimplementations/database"
+	"game-price-tracker/myimplementations/filter"
 	"game-price-tracker/myimplementations/logging"
 	"game-price-tracker/myimplementations/register"
 	"game-price-tracker/myimplementations/types"
@@ -26,7 +27,8 @@ func run() error {
 	command := flag.String("command", "", "command to run (deals, stats, records, lowest, history, upsert, search, crawl)")
 	id := flag.Int("id", 0, "Steam app ID")
 	page := flag.Int("page", 1, "page number")
-	prefix := flag.String("prefix", "", "game name prefix")
+	filter := flag.String("filter", "", "filter records: "+filter.FilterHelp)
+
 	flag.Parse()
 
 	if *command == "" {
@@ -63,5 +65,5 @@ func run() error {
 		State: db.Collection("metadata"),
 	}
 
-	return cmd(app, types.Options{ID: *id, Page: *page, Prefix: *prefix})
+	return cmd(app, types.Options{ID: *id, Page: *page, Filter: *filter})
 }

@@ -38,7 +38,7 @@ type App struct {
 type Options struct {
 	ID     int
 	Page   int
-	Prefix string
+	Filter string
 }
 
 type Command func(app *App, opts Options) error

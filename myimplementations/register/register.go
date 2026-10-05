@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"game-price-tracker/commands"
+	"game-price-tracker/myimplementations/filter"
 	"game-price-tracker/myimplementations/types"
 )
 
@@ -16,16 +17,16 @@ func requireID(o types.Options) error {
 
 func LoadRegisters() map[string]types.Command {
 	return map[string]types.Command{
-		"deals": func(a *types.App, o types.Options) error {
-			commands.DisplayDeals(a.Games)
-			return nil
-		},
 		"stats": func(a *types.App, o types.Options) error {
 			commands.DisplayStats(a.Games)
 			return nil
 		},
 		"records": func(a *types.App, o types.Options) error {
-			commands.DisplayRecords(a.Games, o.Page)
+			f, err := filter.ParseFilter(o.Filter)
+			if err != nil {
+				return err
+			}
+			commands.DisplayRecords(a.Games, o.Page, f)
 			return nil
 		},
 		"lowest": func(a *types.App, o types.Options) error {
@@ -47,13 +48,6 @@ func LoadRegisters() map[string]types.Command {
 				return err
 			}
 			commands.UpsertGame(a.Games, o.ID)
-			return nil
-		},
-		"search": func(a *types.App, o types.Options) error {
-			if o.Prefix == "" {
-				return errors.New("missing -prefix")
-			}
-			commands.SearchGame(a.Games, o.Prefix)
 			return nil
 		},
 		"crawl": func(a *types.App, o types.Options) error {
