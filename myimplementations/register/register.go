@@ -60,5 +60,9 @@ func LoadRegisters() map[string]types.Command {
 			commands.Crawl(a.Games, a.State)
 			return nil
 		},
+		"help": func(a *types.App, o types.Options) error {
+			commands.PrintHelp()
+			return nil
+		},
 	}
 }
