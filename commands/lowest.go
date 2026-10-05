@@ -46,7 +46,7 @@ func SearchLowestPrice(collection *mongo.Collection, appId int) {
 
 	fmt.Printf("Game: %s\n", existing.Title)
 	fmt.Printf("Lowest Price: $%.2f\n", lowest.DiscountPrice)
-	fmt.Printf("Discount: %.0f%%\n", lowest.Discount)
+	fmt.Printf("Discount: %d%%\n", lowest.Discount)
 	fmt.Printf("Recorded: %s\n", lowest.CheckedAt.Format(time.RFC3339))
 
 	slog.Info("SearchLowestPrice completed", "appId", appId)

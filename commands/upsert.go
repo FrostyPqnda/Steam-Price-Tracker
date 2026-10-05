@@ -64,9 +64,9 @@ func insertGame(collection *mongo.Collection, appId int) (types.Game, error) {
 
 		first := e.DOM.Find("div.game_area_purchase_game_wrapper").First()
 
-		discount, discErr := extractValue(first.Find(".discount_pct").Text())
-		originalPrice, origErr := extractValue(first.Find(".discount_original_price").Text())
-		discountPrice, finalErr := extractValue(first.Find(".discount_final_price").Text())
+		discount, discErr := extractPercent(first.Find(".discount_pct").Text())
+		originalPrice, origErr := extractPrice(first.Find(".discount_original_price").Text())
+		discountPrice, finalErr := extractPrice(first.Find(".discount_final_price").Text())
 		isNoDiscount := e.DOM.Find("div.discount_block").HasClass("no_discount")
 
 		// Steam omits the discount % and original price fields entirely when
@@ -98,7 +98,7 @@ func insertGame(collection *mongo.Collection, appId int) (types.Game, error) {
 		price := types.PriceRecord{
 			OriginalPrice: originalPrice,
 			DiscountPrice: discountPrice,
-			Discount:      discount,
+			Discount:      discount * -1,
 			CheckedAt:     time.Now(),
 		}
 

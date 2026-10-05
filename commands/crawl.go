@@ -70,24 +70,22 @@ func parsePaginationData(totalPages *int) {
 
 // extractValue extracts the floating point value from a Steam game, specifically
 // its price (original and discount) and the discount percent
-func extractValue(s string) (float64, error) {
-	// Remove all leading and trailing whitespaces
+func extractPercent(s string) (int64, error) {
 	s = strings.TrimSpace(s)
-
-	// Extract and return the discount off percent
-	if strings.HasSuffix(s, "%") {
-		s = strings.TrimSuffix(s, "%")
-		return strconv.ParseFloat(strings.TrimSpace(s), 64)
+	if !strings.HasSuffix(s, "%") {
+		return 0, fmt.Errorf("not a percent: %q", s)
 	}
+	s = strings.TrimSpace(strings.TrimSuffix(s, "%"))
+	return strconv.ParseInt(s, 10, 64)
+}
 
-	// Extract and return the price
-	if strings.HasPrefix(s, "$") {
-		s = strings.TrimPrefix(s, "$")
-		return strconv.ParseFloat(strings.TrimSpace(s), 64)
+func extractPrice(s string) (float64, error) {
+	s = strings.TrimSpace(s)
+	if !strings.HasPrefix(s, "$") {
+		return 0, fmt.Errorf("not a price: %q", s)
 	}
-
-	// Return an error if value could not be extracted
-	return 0, fmt.Errorf("unsupported value: %q", s)
+	s = strings.TrimSpace(strings.TrimPrefix(s, "$"))
+	return strconv.ParseFloat(s, 64)
 }
 
 // cleanURL cleans up the Steam game webpage link by removing
@@ -139,9 +137,9 @@ func Crawl(gameCollection, stateCollection *mongo.Collection) {
 		}
 
 		// Extract the discount, original price, and discount price
-		discount, discErr := extractValue(e.ChildText("div.discount_pct"))
-		originalPrice, origErr := extractValue(e.ChildText("div.discount_original_price"))
-		discountPrice, finalErr := extractValue(e.ChildText("div.discount_final_price"))
+		discount, discErr := extractPercent(e.ChildText("div.discount_pct"))
+		originalPrice, origErr := extractPrice(e.ChildText("div.discount_original_price"))
+		discountPrice, finalErr := extractPrice(e.ChildText("div.discount_final_price"))
 		isNoDiscount := e.DOM.Find("div.discount_block").HasClass("no_discount")
 
 		// Steam omits the discount % and original price fields entirely when
@@ -175,7 +173,7 @@ func Crawl(gameCollection, stateCollection *mongo.Collection) {
 		price := types.PriceRecord{
 			OriginalPrice: originalPrice,
 			DiscountPrice: discountPrice,
-			Discount:      discount,
+			Discount:      discount * -1,
 			CheckedAt:     time.Now(),
 		}
 

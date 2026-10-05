@@ -10,7 +10,7 @@ import (
 type PriceRecord struct {
 	OriginalPrice float64   `bson:"original_price" json:"original_price"` // Price without discount
 	DiscountPrice float64   `bson:"discount_price" json:"discount_price"` // Price with discount
-	Discount      float64   `bson:"discount" json:"discount"`             // Discount perceent (multiplied by 100)
+	Discount      int64     `bson:"discount" json:"discount"`             // Discount perceent (multiplied by 100)
 	CheckedAt     time.Time `bson:"checked_at" json:"checked_at"`         // Last time the price was checked
 }
 

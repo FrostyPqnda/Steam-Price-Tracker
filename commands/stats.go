@@ -158,7 +158,7 @@ func DisplayStats(collection *mongo.Collection) {
 	fmt.Println()
 
 	if hasBiggestDeal {
-		fmt.Printf("Biggest discount:     %s — %.0f%% off ($%.2f → $%.2f)\n",
+		fmt.Printf("Biggest discount:     %s — %d%% off ($%.2f → $%.2f)\n",
 			biggestDeal.Title,
 			biggestDeal.PriceSnapshot.Discount,
 			biggestDeal.PriceSnapshot.OriginalPrice,
