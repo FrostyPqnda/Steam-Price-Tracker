@@ -22,12 +22,12 @@ This project is an independent, unofficial Steam price tracker and is not affili
 
 ## List of Available Commands
 
-* stats: Display tracker statistics 
-* records -page=&lt;page&gt; -filter=&lt;filter value&gt;: Display paginated game records, with optional filtering
-* lowest -id=&lt;App Id&gt;: Display the lowest price a game has ever been
-* history -id=&lt;App Id&gt;: Display a game's price history as a trend graph
-* upsert -id=&lt;App Id&gt;: Insert/Update a game data from the Steam page to MongoDB
-* crawl: Crawls the Steam store page and scrapes the game content into MongoDB
+* ***stats***: Display tracker statistics 
+* ***records*** -page=&lt;page&gt; -filter=&lt;filter value&gt;: Display paginated game records, with optional filtering
+* ***lowest*** -id=&lt;App Id&gt;: Display the lowest price a game has ever been
+* ***history*** -id=&lt;App Id&gt;: Display a game's price history as a trend graph
+* ***upsert*** -id=&lt;App Id&gt;: Insert/Update a game data from the Steam page to MongoDB
+* ***crawl***: Crawls the Steam store page and scrapes the game content into MongoDB
 
 ## License
 
