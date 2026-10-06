@@ -9,7 +9,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
-const FilterHelp = "sale, free, under:<price>, over:<price>, discount:<min%>, name:<text>"
+const FilterHelp = "sale, free, under:<price>, over:<price>, discount:<min%>, name:<text>, prefix:<text>"
 
 // ParseFilter turns "sale,under:10" into a Mongo filter.
 func ParseFilter(spec string) (bson.M, error) {
