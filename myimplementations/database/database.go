@@ -15,10 +15,11 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
 )
 
-// connectMongoDB establishes a connection to the MongoDB
+// ConnectMongoDB connects to MongoDB using MONGO_URI, MONGO_USERNAME and
+// MONGO_PASSWORD (read from a .env file or the environment).
 //
-// On success, connectMongoDB returns a MongoDB client and null error.
-// On failure, it returns null client and a Connect/Ping error
+// On success it returns a connected client and a nil error.
+// On failure it returns a nil client and the reason.
 func ConnectMongoDB() (*mongo.Client, error) {
 	// Load the .env file and log the error if it odes not exists
 	if err := godotenv.Load(); err != nil {
@@ -29,7 +30,7 @@ func ConnectMongoDB() (*mongo.Client, error) {
 	// if it is not set
 	mongoURI := os.Getenv("MONGO_URI")
 	if mongoURI == "" {
-		slog.Error("MONGO_URI environment variable not set")
+		return nil, fmt.Errorf("MONGO_URI environment variable not set")
 	}
 
 	username := os.Getenv("MONGO_USERNAME")
@@ -50,7 +51,7 @@ func ConnectMongoDB() (*mongo.Client, error) {
 
 	client, err := mongo.Connect(clientOpts)
 	if err != nil {
-		slog.Error("Failed to establish a connection", "error", err)
+		return nil, fmt.Errorf("failed to create MongoDB client: %w", err)
 	}
 
 	// Create a context and ping the MongoDB, giving it a 2 second deadline
@@ -62,7 +63,7 @@ func ConnectMongoDB() (*mongo.Client, error) {
 
 	if err := client.Ping(ctx, readpref.Primary()); err != nil {
 		client.Disconnect(context.Background())
-		return nil, err
+		return nil, fmt.Errorf("could not reach MongoDB: %w", err)
 	}
 
 	slog.Debug("Connection established")
