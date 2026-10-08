@@ -6,31 +6,30 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"time"
 
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 func SetupLogging(serviceName string) (io.Closer, error) {
-	var logDir string = "log"
+	const logDir = "log"
 
 	if err := os.MkdirAll(logDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create log directory: %w", err)
 	}
 
-	timestamp := time.Now().Format("2006-01-02_15-04-05")
-	logPath := filepath.Join(logDir, fmt.Sprintf("%s_%s.log", serviceName, timestamp))
-
 	rotator := &lumberjack.Logger{
-		Filename:   logPath,
-		MaxSize:    50,   // In MB, before rotating
-		MaxBackups: 10,   // Keep the last 10 rotated files
-		MaxAge:     14,   // TTL for the log files
-		Compress:   true, // Gzip old logs
-
+		Filename:   filepath.Join(logDir, serviceName+".log"),
+		MaxSize:    50,   // MB before rotating
+		MaxBackups: 10,   // keep the last 10 rotated files
+		MaxAge:     14,   // days
+		Compress:   true, // gzip rotated files
 	}
 
-	logger := slog.New(slog.NewTextHandler(rotator, nil))
-	slog.SetDefault(logger)
+	level := slog.LevelInfo
+	if os.Getenv("LOG_LEVEL") == "debug" {
+		level = slog.LevelDebug
+	}
+
+	slog.SetDefault(slog.New(slog.NewTextHandler(rotator, &slog.HandlerOptions{Level: level})))
 	return rotator, nil
 }
