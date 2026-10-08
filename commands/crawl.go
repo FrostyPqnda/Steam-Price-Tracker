@@ -105,8 +105,8 @@ func cleanURL(href string) string {
 }
 
 // Crawl crawls the Steam store webpage and collects the game data into a MongoDB collection
-func Crawl(gameCollection, stateCollection *mongo.Collection) {
-	slog.Info("Starting price tracking extraction")
+func Crawl(gameCollection, stateCollection *mongo.Collection, startFlag, endFlag int) {
+	slog.Info("Running Crawl")
 
 	// Initialize a Collector instance to begin crawling
 	c := colly.NewCollector(
@@ -125,6 +125,7 @@ func Crawl(gameCollection, stateCollection *mongo.Collection) {
 	upsertErrors := 0
 	extractionWarnings := 0
 	var pagesAttempted, pagesFailed int
+	var failedPages []int
 
 	// Search the Steam store games list
 	c.OnHTML("div#search_resultsRows > a", func(e *colly.HTMLElement) {
@@ -199,7 +200,9 @@ func Crawl(gameCollection, stateCollection *mongo.Collection) {
 				"error", err,
 			)
 			upsertErrors++
+			return
 		}
+		gamesFound++
 	})
 
 	// Print out the current page being visited
@@ -220,31 +223,57 @@ func Crawl(gameCollection, stateCollection *mongo.Collection) {
 		slog.Error("Request error", "url", r.Request.URL.String(), "status", r.StatusCode, "error", err)
 	})
 
-	//startPage, err := .//LoadState(stateCollection)
-	startPage, lastPage, err := database.LoadMetadataState(stateCollection)
-	if err != nil {
-		slog.Error("Failed to load metadata", "error", err)
-		return
-	}
+	ranged := startFlag > 0 || endFlag > 0
 
-	if startPage == lastPage {
+	var startPage, lastPage int
+	if ranged {
+		// Always look up the real total so -end-page beyond the last page is clamped
 		var totalPages int
 		parsePaginationData(&totalPages)
-
 		if totalPages == 0 {
 			slog.Error("Pagination extraction returned 0 pages, aborting crawl")
 			return
 		}
 
-		startPage = 1
+		startPage = max(startFlag, 1)
 		lastPage = totalPages
+		if endFlag > 0 && endFlag < totalPages {
+			lastPage = endFlag
+		}
 
-		if err := database.SaveCrawlRange(stateCollection, startPage, lastPage); err != nil {
-			slog.Error("Failed to save initial crawl range, aborting", "error", err)
+		if startPage > lastPage {
+			fmt.Printf("-start-page (%d) is past the last page (%d)\n", startPage, lastPage)
 			return
 		}
+		slog.Info("Ranged crawl: saved progress is not read or changed",
+			"start_page", startPage, "last_page", lastPage, "total_pages", totalPages)
 	} else {
-		slog.Info("Resuming crawl, skipping pagination re-check", "start_page", startPage, "last_page", lastPage)
+		// last_page is the last page COMPLETED, so resume at last+1
+		last, total, err := database.LoadMetadataState(stateCollection)
+		if err != nil {
+			slog.Error("Failed to load metadata", "error", err)
+			return
+		}
+
+		if last >= total {
+			// No checkpoint yet, or the previous crawl finished: start a new cycle
+			var totalPages int
+			parsePaginationData(&totalPages)
+			if totalPages == 0 {
+				slog.Error("Pagination extraction returned 0 pages, aborting crawl")
+				return
+			}
+
+			startPage, lastPage = 1, totalPages
+			if err := database.SaveCrawlRange(stateCollection, 0, totalPages); err != nil { // 0 = nothing done yet
+				slog.Error("Failed to save initial crawl range, aborting", "error", err)
+				return
+			}
+			slog.Info("Starting new crawl cycle", "total_pages", totalPages)
+		} else {
+			startPage, lastPage = last+1, total
+			slog.Info("Resuming crawl", "start_page", startPage, "last_page", lastPage)
+		}
 	}
 
 	// Visit all pages starting from 1 to n and log any errors that occurs
@@ -255,7 +284,12 @@ func Crawl(gameCollection, stateCollection *mongo.Collection) {
 		if err := c.Visit(url); err != nil {
 			slog.Error("Failed to visit", "url", url, "page", page, "error", err)
 			pagesFailed++
+			failedPages = append(failedPages, page)
 			continue
+		}
+
+		if ranged {
+			continue // never touch saved progress on a ranged crawl
 		}
 
 		if err := database.SaveCurrentCrawl(stateCollection, page); err != nil {
@@ -266,6 +300,7 @@ func Crawl(gameCollection, stateCollection *mongo.Collection) {
 	slog.Info("Crawl completed",
 		"pagesAttempted", pagesAttempted,
 		"pagesFailed", pagesFailed,
+		"failedPages", failedPages,
 		"totalPagesAvailable", lastPage,
 		"gamesFound", gamesFound,
 		"upsertErrors", upsertErrors,

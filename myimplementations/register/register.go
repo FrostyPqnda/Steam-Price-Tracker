@@ -2,6 +2,7 @@ package register
 
 import (
 	"errors"
+	"fmt"
 
 	"game-price-tracker/commands"
 	"game-price-tracker/myimplementations/filter"
@@ -51,7 +52,13 @@ func LoadRegisters() map[string]types.Command {
 			return nil
 		},
 		"crawl": func(a *types.App, o types.Options) error {
-			commands.Crawl(a.Games, a.State)
+			if o.StartPage < 0 || o.EndPage < 0 {
+				return errors.New("-startPage and -endPage must be positive")
+			}
+			if o.EndPage != 0 && o.StartPage > o.EndPage {
+				return fmt.Errorf("-startPage (%d) must be <= -endPage (%d)", o.StartPage, o.EndPage)
+			}
+			commands.Crawl(a.Games, a.State, o.StartPage, o.EndPage)
 			return nil
 		},
 		"help": func(a *types.App, o types.Options) error {

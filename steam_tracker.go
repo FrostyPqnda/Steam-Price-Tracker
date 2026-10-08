@@ -28,6 +28,8 @@ func run() error {
 	id := flag.Int("id", 0, "Steam app ID")
 	page := flag.Int("page", 1, "page number")
 	filter := flag.String("filter", "", "filter records: "+filter.FilterHelp)
+	startPage := flag.Int("startPage", 1, "crawl: first results page (1-based)")
+	endPage := flag.Int("endPage", 0, "crawl: last results page (0 = until results run out)")
 
 	flag.Parse()
 
@@ -64,6 +66,7 @@ func run() error {
 		Games: db.Collection("game"),
 		State: db.Collection("metadata"),
 	}
+	options := types.Options{ID: *id, Page: *page, Filter: *filter, StartPage: *startPage, EndPage: *endPage}
 
-	return cmd(app, types.Options{ID: *id, Page: *page, Filter: *filter})
+	return cmd(app, options)
 }
