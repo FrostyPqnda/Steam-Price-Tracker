@@ -18,6 +18,7 @@ For simplicity, only paid games are scraped, since free-to-play games don't cont
 
 - Go 1.26.5 (or the version in `go.mod`)
 - A MongoDB instance (local install or a hosted cluster such as MongoDB Atlas)
+- To preload the games document, just open the MongoDB Atlas application and click [Add Data]
 
 ## Setup
 
@@ -51,6 +52,16 @@ git clone https://github.com/FrostyPqnda/Steam-Price-Tracker
 cd game-price-tracker
 go mod download
 ```
+
+### Optional: load sample data
+
+A full crawl takes many hours. To try the commands right away, import `games.json` into the `game` collection first:
+
+```bash
+mongoimport --uri "<your MONGO_URI>" --db steam_price_tracker --collection game --file games.json
+```
+
+In MongoDB Atlas you can do the same from the UI: open your cluster, choose **Browse Collections**, select (or create) the `game` collection in the `steam_price_tracker` database, then click **Add Data** → **Import JSON or CSV file** and pick `games.json`.
 
 ## Usage
 
