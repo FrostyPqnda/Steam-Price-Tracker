@@ -1,40 +1,39 @@
 package commands
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
 	"math"
 
+	"game-price-tracker/myimplementations/database"
 	mytable "game-price-tracker/myimplementations/table"
 
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/jedib0t/go-pretty/v6/text"
 
-	"game-price-tracker/myimplementations/types"
-
-	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
+// SearchLowestPrice looks up the game with the given appId in collection and
+// outputs a table summarizing its loweest recorded price.
+//
+// The lowest price is the minimum DiscountPrice across the game's PriceHistory
+// and its current PriceSnapshot.
+//
+// The table also shows the current price, the discount at the lowest price, how
+// far the current price is above the lowest, the no. of price checks, and how
+// long ago the game was last checked.
 func SearchLowestPrice(collection *mongo.Collection, appId int) {
-	ctx := context.TODO()
-
 	slog.Info("Running SearchLowestPrice", "appId", appId)
 
-	var game types.Game
-	err := collection.FindOne(ctx, bson.M{"_id": appId}).Decode(&game)
-	if err != nil {
-		if err == mongo.ErrNoDocuments {
-			slog.Warn("No game found for app ID", "appId", appId)
-			fmt.Printf("No game found with app ID %d\n", appId)
-		} else {
-			slog.Error("Failed to fetch game", "appId", appId, "error", err)
-		}
+	game, ok := database.FetchGame(collection, appId)
+	if !ok {
 		return
 	}
 
-	// Include the current snapshot, not just the history
+	// Include the current snapshot, not just the history. Starting from the
+	// snapshot means a history record must be strictly cheaper to replace it,
+	// so ties resolve in favor of the current price.
 	current := game.PriceSnapshot
 	lowest := current
 	for _, record := range game.PriceHistory {
@@ -43,11 +42,14 @@ func SearchLowestPrice(collection *mongo.Collection, appId int) {
 		}
 	}
 
+	// Highlight when the current price is the best seen; otherwise show the
+	// gap in dollars.
 	status := text.FgGreen.Sprint("At its lowest price")
 	if current.DiscountPrice > lowest.DiscountPrice {
 		status = fmt.Sprintf("$%.2f above the lowest", current.DiscountPrice-lowest.DiscountPrice)
 	}
 
+	// Build the summary table, titled with the (shortened) name and app ID.
 	t := mytable.NewTable(fmt.Sprintf("%s (%d)", shortTitle(game.Title), appId))
 	t.AppendRows([]table.Row{
 		{"Current price", fmt.Sprintf("$%.2f", current.DiscountPrice)},
@@ -58,6 +60,7 @@ func SearchLowestPrice(collection *mongo.Collection, appId int) {
 		{"Price checks", len(game.PriceHistory) + 1},
 		{"Last checked", timeAgo(current.CheckedAt)},
 	})
+	// Right-align the value column so the numbers line up.
 	t.SetColumnConfigs([]table.ColumnConfig{
 		{Number: 2, Align: text.AlignRight},
 	})

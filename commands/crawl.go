@@ -14,7 +14,8 @@ import (
 )
 
 // parsePaginationData crawls the steam store webpage's pagination
-// section and extracts the total no. of pages.
+// section and extracts the total no. of pages and loads it into
+// *totalPages
 func parsePaginationData(totalPages *int) {
 	const searchURL = "https://store.steampowered.com/search?hwtype=0&supportedlang=english&hidef2p=1&ndl=1&page=1"
 
@@ -68,8 +69,17 @@ func parsePaginationData(totalPages *int) {
 	slog.Info("pagination data extracted", "total_pages", *totalPages)
 }
 
-// extractValue extracts the floating point value from a Steam game, specifically
-// its price (original and discount) and the discount percent
+// extractPercent parses a percentage such as "25%" and returns its
+// integer value without the percent sign (25)
+//
+// Leading and trailing whitespaces are ignored, as is the whitespace
+// between the number and the "%".
+//
+// The number must be a base-10 integer. The result is not range-checked,
+// so values such as "150%" and "-5%" are returned as is.
+//
+// It returns an error if s does not end with "%", or if the remaining
+// text is not a valid int64
 func extractPercent(s string) (int64, error) {
 	s = strings.TrimSpace(s)
 	if !strings.HasSuffix(s, "%") {
@@ -79,6 +89,13 @@ func extractPercent(s string) (int64, error) {
 	return strconv.ParseInt(s, 10, 64)
 }
 
+// extractPrice parses the price such as "9.99" and returns it
+//
+// Leading and trailing whitespaces are ignored, as is the whitespace
+// between the number and the "$".
+//
+// It returns an error if s does not start with "$"", or if the remaining
+// text is not a valid float64
 func extractPrice(s string) (float64, error) {
 	s = strings.TrimSpace(s)
 	if !strings.HasPrefix(s, "$") {
@@ -88,8 +105,8 @@ func extractPrice(s string) (float64, error) {
 	return strconv.ParseFloat(s, 64)
 }
 
-// cleanURL cleans up the Steam game webpage link by removing
-// the serial number.
+// cleanURL takes in URL href and cleans up the string by removing
+// the trailing serial no. at the end of it
 //
 // Input: https://store.steampowered.com/app/<app id>/<title>/?snr=<serial no.>
 // Output: https://store.steampowered.com/app/<app id>
@@ -104,7 +121,14 @@ func cleanURL(href string) string {
 	return href
 }
 
-// Crawl crawls the Steam store webpage and collects the game data into a MongoDB collection
+// Crawl traverses the Steam store search webpage and scrapes the rows of game data into
+// gameCollection.
+//
+// It also provides two optional flags for start and endpoints to allow users to allow scrape
+// only the specified page ranges [start, end].
+//
+// It provides the state saving to allow users to run the function from the current state
+// instead of starting back at the 1st page.
 func Crawl(gameCollection, stateCollection *mongo.Collection, startFlag, endFlag int) {
 	slog.Info("Running Crawl")
 
@@ -121,11 +145,11 @@ func Crawl(gameCollection, stateCollection *mongo.Collection, startFlag, endFlag
 	})
 	c.SetRequestTimeout(30 * time.Second)
 
-	gamesFound := 0
-	upsertErrors := 0
-	extractionWarnings := 0
-	var pagesAttempted, pagesFailed int
-	var failedPages []int
+	gamesFound := 0                     // No. of games found
+	upsertErrors := 0                   // No. of upsertion errors
+	extractionWarnings := 0             // No. of extraction warnings
+	var pagesAttempted, pagesFailed int // No. of pages attempted and failed
+	var failedPages []int               // List of failed pages
 
 	// Search the Steam store games list
 	c.OnHTML("div#search_resultsRows > a", func(e *colly.HTMLElement) {
@@ -205,7 +229,7 @@ func Crawl(gameCollection, stateCollection *mongo.Collection, startFlag, endFlag
 		gamesFound++
 	})
 
-	// Print out the current page being visited
+	// Log the current page being visited
 	c.OnRequest(func(r *colly.Request) {
 		slog.Info("Visiting URL", "url", r.URL.String())
 	})
@@ -224,10 +248,10 @@ func Crawl(gameCollection, stateCollection *mongo.Collection, startFlag, endFlag
 	})
 
 	ranged := startFlag > 0 || endFlag > 0
-
 	var startPage, lastPage int
+
 	if ranged {
-		// Always look up the real total so -end-page beyond the last page is clamped
+		// Always look up the real total so -endPage beyond the last page is clamped
 		var totalPages int
 		parsePaginationData(&totalPages)
 		if totalPages == 0 {
@@ -235,28 +259,45 @@ func Crawl(gameCollection, stateCollection *mongo.Collection, startFlag, endFlag
 			return
 		}
 
+		// Clamp the starting  page to be the maximum between
+		// the start range and 1.
 		startPage = max(startFlag, 1)
+
+		// Set lastPage to be the totalPages initially then
+		// set it to the specified endPage if the endPage
+		// if the end flag exists and is less than totalPages
 		lastPage = totalPages
 		if endFlag > 0 && endFlag < totalPages {
 			lastPage = endFlag
 		}
 
+		// Notify users that startPage exceeds lastPage
 		if startPage > lastPage {
-			fmt.Printf("-start-page (%d) is past the last page (%d)\n", startPage, lastPage)
+			fmt.Printf("-startPage (%d) is past the last page (%d)\n", startPage, lastPage)
 			return
 		}
+
+		// Log the crawl range
 		slog.Info("Ranged crawl: saved progress is not read or changed",
 			"start_page", startPage, "last_page", lastPage, "total_pages", totalPages)
 	} else {
-		// last_page is the last page COMPLETED, so resume at last+1
+		// lastPage is the last page COMPLETED, so resume at last+1
+
+		// Load the current page and last page from the metadata
 		last, total, err := database.LoadMetadataState(stateCollection)
 		if err != nil {
 			slog.Error("Failed to load metadata", "error", err)
 			return
 		}
 
+		// The current page is at the last page, so renew the total
+		// page count.
+		//
+		// Otherwise, resume from the current state
 		if last >= total {
 			// No checkpoint yet, or the previous crawl finished: start a new cycle
+
+			// Renew the total page count
 			var totalPages int
 			parsePaginationData(&totalPages)
 			if totalPages == 0 {
@@ -264,21 +305,22 @@ func Crawl(gameCollection, stateCollection *mongo.Collection, startFlag, endFlag
 				return
 			}
 
+			// Initialize the crawl range and save it
 			startPage, lastPage = 1, totalPages
-			if err := database.SaveCrawlRange(stateCollection, 0, totalPages); err != nil { // 0 = nothing done yet
+			if err := database.SaveCrawlRange(stateCollection, startPage, totalPages); err != nil { // 0 = nothing done yet
 				slog.Error("Failed to save initial crawl range, aborting", "error", err)
 				return
 			}
 			slog.Info("Starting new crawl cycle", "total_pages", totalPages)
 		} else {
-			startPage, lastPage = last+1, total
+			startPage, lastPage = last, total
 			slog.Info("Resuming crawl", "start_page", startPage, "last_page", lastPage)
 		}
 	}
 
-	// Visit all pages starting from 1 to n and log any errors that occurs
-	// during visit
+	// Visit every page from [startPage, lastPage]
 	for page := startPage; page <= lastPage; page++ {
+		// Visit the specified page
 		pagesAttempted++
 		url := fmt.Sprintf("https://store.steampowered.com/search?hwtype=0&category1=998&supportedlang=english&hidef2p=1&ndl=1&sort_by=Released_ASC&page=%d", page)
 		if err := c.Visit(url); err != nil {
@@ -288,10 +330,12 @@ func Crawl(gameCollection, stateCollection *mongo.Collection, startFlag, endFlag
 			continue
 		}
 
+		// Never save the crawl state if we use a ranged value
 		if ranged {
 			continue // never touch saved progress on a ranged crawl
 		}
 
+		// Attempt to save the current crawl after every page visit
 		if err := database.SaveCurrentCrawl(stateCollection, page); err != nil {
 			slog.Error("Failed to save crawl checkpoint", "page", page, "error", err)
 		}

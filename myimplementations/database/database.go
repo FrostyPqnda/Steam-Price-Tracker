@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"game-price-tracker/myimplementations/types"
 	"log/slog"
@@ -228,4 +229,31 @@ func SaveCurrentCrawl(collection *mongo.Collection, page int) error {
 	}
 
 	return err
+}
+
+// FetchGame looks up the game with the given appID in collection. The query is
+// limited to 10 seconds.
+//
+// It reports whether the game was found. If no game matches appID, a message
+// is printed to standard output and a warning is logged. Any other failure
+// (including a timeout) is only logged at error level, so nothing is printed
+// to the user. In both cases the returned bool is false.
+func FetchGame(collection *mongo.Collection, appId int) (types.Game, bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Find the game with the matching appId and decode it
+	var game types.Game
+	err := collection.FindOne(ctx, bson.M{"_id": appId}).Decode(&game)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			slog.Warn("No game found for app ID", "appId", appId)
+			fmt.Printf("No game found with app ID %d\n", appId)
+		} else {
+			slog.Error("Failed to fetch game", "appId", appId, "error", err)
+		}
+		return types.Game{}, false
+	}
+
+	return game, true
 }

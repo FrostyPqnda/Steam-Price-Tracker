@@ -18,6 +18,11 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
+// timeAgo returns a rough, human-readable description of how long ago t was,
+// such as "just now", "5 minutes ago", "3 hours ago" or "12 days ago".
+//
+// Durations are truncated, not rounded, and the largest unit is days. Times
+// in the future are reported as "just now".
 func timeAgo(t time.Time) string {
 	d := time.Since(t)
 	switch {
@@ -32,6 +37,18 @@ func timeAgo(t time.Time) string {
 	}
 }
 
+// DisplayStats prints summary statistics for the tracker to standard output as
+// a table, grouped into three sections:
+//
+//   - Overview: total games tracked, how many are on sale (and the
+//     percentage), and the total number of price checks across all games.
+//   - Deals: the game with the biggest current discount, the average discount
+//     among games on sale, and the lowest price ever recorded for any game.
+//   - Freshness: the most recently and least recently checked games.
+//
+// Rows are omitted when there is nothing to show (for example, no games on
+// sale or an empty collection). The collection must contain documents
+// decodable into types.Game.
 func DisplayStats(collection *mongo.Collection) {
 	ctx := context.TODO()
 
@@ -43,6 +60,8 @@ func DisplayStats(collection *mongo.Collection) {
 		return
 	}
 
+	// Discounts are stored as negative numbers (-50 means 50% off), so any
+	// non-zero value is treated as "on sale".
 	onSaleFilter := bson.M{"price_snapshot.discount": bson.M{"$ne": 0}}
 	onSaleCount, err := collection.CountDocuments(ctx, onSaleFilter)
 	if err != nil {
@@ -51,10 +70,12 @@ func DisplayStats(collection *mongo.Collection) {
 	}
 
 	// --- Biggest current discount ---
+	// Ascending sort puts the most negative discount (the biggest sale) first.
 	var biggestDeal types.Game
 	opts := options.FindOne().SetSort(bson.M{"price_snapshot.discount": 1})
 	err = collection.FindOne(ctx, onSaleFilter, opts).Decode(&biggestDeal)
 
+	// "No documents" just means nothing is on sale, which is not an error.
 	hasBiggestDeal := true
 	if err != nil {
 		if err != mongo.ErrNoDocuments {
@@ -66,6 +87,10 @@ func DisplayStats(collection *mongo.Collection) {
 	}
 
 	// --- Average discount among games on sale ---
+	// $group with _id nil collapses all matching documents into one result.
+	// Each game's check count is len(price_history) + 1 for the snapshot.
+	// NOTE: totalChecks is computed here but never read; the overall total
+	// comes from the next pipeline.
 	avgPipeline := mongo.Pipeline{
 		{{Key: "$match", Value: onSaleFilter}},
 		{{Key: "$group", Value: bson.M{
@@ -81,6 +106,7 @@ func DisplayStats(collection *mongo.Collection) {
 		return
 	}
 
+	// Slice, not a single struct: an empty match produces zero results.
 	var avgResults []struct {
 		AvgDiscount float64 `bson:"avgDiscount"`
 		TotalChecks int64   `bson:"totalChecks"`
@@ -112,6 +138,10 @@ func DisplayStats(collection *mongo.Collection) {
 	}
 
 	// --- Best historical low: unwind price_history + snapshot, find global min discount_price ---
+	// Merge history and the current snapshot into one array per game, flatten
+	// it to one document per price record, then take the cheapest. $sort
+	// followed by $limit 1 lets MongoDB keep only the top record while sorting
+	// instead of ordering everything.
 	bestEverPipeline := mongo.Pipeline{
 		{{Key: "$project", Value: bson.M{
 			"title": 1,
@@ -139,6 +169,8 @@ func DisplayStats(collection *mongo.Collection) {
 	}
 
 	// --- Most / least recently checked ---
+	// An empty collection is tolerated here; the zero-value check when
+	// printing skips these rows.
 	var mostRecent, oldest types.Game
 	mostRecentOpts := options.FindOne().SetSort(bson.M{"price_snapshot.checked_at": -1})
 	if err := collection.FindOne(ctx, bson.M{}, mostRecentOpts).Decode(&mostRecent); err != nil && err != mongo.ErrNoDocuments {
@@ -157,6 +189,8 @@ func DisplayStats(collection *mongo.Collection) {
 
 	// Overview
 	t.AppendRow(table.Row{"Games tracked", commas(totalGames), ""})
+
+	// Guard against dividing by zero on an empty collection.
 	if totalGames > 0 {
 		t.AppendRow(table.Row{
 			"Currently on sale",
@@ -196,7 +230,7 @@ func DisplayStats(collection *mongo.Collection) {
 	}
 	t.AppendSeparator()
 
-	// Freshness
+	// Freshness: a zero CheckedAt means the lookup found nothing.
 	if !mostRecent.PriceSnapshot.CheckedAt.IsZero() {
 		t.AppendRow(table.Row{"Last checked", timeAgo(mostRecent.PriceSnapshot.CheckedAt), shortTitle(mostRecent.Title)})
 	}
@@ -204,6 +238,7 @@ func DisplayStats(collection *mongo.Collection) {
 		t.AppendRow(table.Row{"Oldest check", timeAgo(oldest.PriceSnapshot.CheckedAt), shortTitle(oldest.Title)})
 	}
 
+	// Right-align the value column so the numbers line up.
 	t.SetColumnConfigs([]table.ColumnConfig{
 		{Number: 2, Align: text.AlignRight, AlignHeader: text.AlignRight},
 	})
@@ -212,6 +247,12 @@ func DisplayStats(collection *mongo.Collection) {
 	slog.Info("DisplayStats completed")
 }
 
+// commas formats n in base 10 with a comma between each group of three digits,
+// for example 1234567 becomes "1,234,567".
+//
+// It is intended for non-negative counts. A negative n would get a comma
+// directly after the minus sign when its digit count is a multiple of three
+// (for example "-,123").
 func commas(n int64) string {
 	s := strconv.FormatInt(n, 10)
 	for i := len(s) - 3; i > 0; i -= 3 {
@@ -220,6 +261,9 @@ func commas(n int64) string {
 	return s
 }
 
+// shortTitle truncates s to at most 40 display columns, ending with "…" if it
+// was shortened. It measures display width rather than bytes or runes, so
+// wide characters (such as CJK) don't break table alignment
 func shortTitle(s string) string {
 	return runewidth.Truncate(s, 40, "…")
 }

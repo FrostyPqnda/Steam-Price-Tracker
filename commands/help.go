@@ -2,6 +2,7 @@ package commands
 
 import "fmt"
 
+// PrintHelp displays a list of available commands
 func PrintHelp() {
 	fmt.Println("List of available commands")
 	fmt.Println("--------------------------------")
